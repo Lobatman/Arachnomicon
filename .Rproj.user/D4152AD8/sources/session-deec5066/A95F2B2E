@@ -1,0 +1,26 @@
+{
+    "id": "A95F2B2E",
+    "path": "C:/pacote_arachnomicon/Arachnomicon/R/correct_taxon.R",
+    "project_path": "R/correct_taxon.R",
+    "type": "r_source",
+    "hash": "1582004986",
+    "contents": "",
+    "dirty": false,
+    "created": 1777231925451.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "437,0",
+        "scrollLine": "411"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1777232618,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1777232618,
+    "read_only": false,
+    "read_only_alternatives": []
+}

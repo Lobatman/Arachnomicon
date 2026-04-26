@@ -1,0 +1,53 @@
+Package: Arachnomicon
+Type: Package
+Title: What the Package Does (Title Case)
+Version: 0.1.0
+Authors@R: c(
+    person(
+      "Jane", "Doe",
+      email = "jane@example.com",
+      role = c("aut", "cre")
+    )
+  )
+Description: More about what it does (maybe more than one line).
+    Continuation lines should be indented.
+License: What license is it under?
+Encoding: UTF-8
+LazyData: true
+Package: Arachnomicon
+Type: Package
+Title: Taxonomic Standardization of Spider Species Names Using WSC and GBIF
+Version: 0.1.0
+Authors@R: 
+    person(
+      given = "Victor",
+      family = "Lobato",
+      role = c("aut", "cre"),
+      email = "seu_email_aqui@example.com"
+    )
+Description: 
+    Tools to standardize and resolve spider species names using the World Spider
+    Catalogue (via 'arakno') and GBIF (via 'rgbif'). The package corrects outdated
+    nomenclature, resolves synonyms, retrieves LSIDs, and optionally returns
+    taxonomic family information. Includes caching and checkpoint mechanisms
+    for efficient large-scale queries.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends: 
+    R (>= 4.1.0)
+Imports:
+    arakno,
+    rgbif,
+    utils
+Suggests:
+    dplyr,
+    readr,
+    purrr,
+    progress,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+URL: https://github.com/Lobatman/Arachnomicon
+BugReports: https://github.com/seu_Lobatman/Arachnomicon/issues

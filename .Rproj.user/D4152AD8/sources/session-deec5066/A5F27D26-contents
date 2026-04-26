@@ -1,0 +1,437 @@
+#' Corrige nomenclatura taxonômica de aranhas usando WSC (arakno) e GBIF (rgbif)
+#'
+#' Esta função padroniza e atualiza nomes de espécies de aranhas a partir de um
+#' `data.frame`, consultando o World Spider Catalogue (via pacote `arakno`) e o
+#' GBIF (via pacote `rgbif`). O WSC tem prioridade para nomes aceitos, enquanto
+#' o GBIF complementa metadados como LSID, família e nível de confiança.
+#'
+#' A função utiliza um sistema de cache persistente (`.rds`) para evitar consultas
+#' repetidas e um mecanismo de checkpoint para retomar execuções interrompidas.
+#'
+#' @param df `data.frame` contendo a coluna com os nomes das espécies.
+#' @param col_species `character`. Nome da coluna com os nomes das espécies.
+#'   Default é `"Especie"`.
+#' @param cache_file `character`. Caminho para o arquivo `.rds` usado como cache
+#'   persistente das consultas. Default é `"cache_taxonomia_aranhas.rds"`.
+#' @param checkpoint_file `character`. Caminho para o arquivo `.rds` usado como
+#'   checkpoint para retomada em caso de interrupção. Default é
+#'   `"checkpoint_taxonomia_aranhas.rds"`.
+#' @param batch_size `numeric`. Número de consultas entre salvamentos do cache
+#'   e checkpoint. Default é `100`.
+#' @param sleep_s `numeric`. Tempo (em segundos) de pausa entre consultas, útil
+#'   para evitar limites de requisição (rate limit). Default é `0`.
+#' @param verbose `logical`. Se `TRUE`, exibe barra de progresso e estimativas
+#'   de tempo. Default é `TRUE`.
+#' @param include_family `logical`. Se `TRUE`, adiciona a coluna `Familia` ao
+#'   resultado final. Default é `FALSE`.
+#' @param col_lsid `character` ou `NULL`. Nome da coluna contendo LSIDs já
+#'   conhecidos para auxiliar na resolução taxonômica. Default é `NULL`.
+#'
+#' @return Um `data.frame` com as colunas originais acrescidas de:
+#' \describe{
+#'   \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
+#'   \item{Especie_atual}{Nome aceito mais recente da espécie.}
+#'   \item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
+#'   \item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
+#'   \item{Sinonimo_de}{Nome aceito caso o original seja sinônimo.}
+#'   \item{LSID}{Identificador taxonômico (quando disponível).}
+#'   \item{GBIF_usageKey}{Identificador único do GBIF.}
+#'   \item{Confianca_match}{Nível de confiança do match no GBIF.}
+#'   \item{Observacao_taxonomia}{Observações adicionais do processo de resolução.}
+#'   \item{Familia}{Família taxonômica (opcional, se `include_family = TRUE`).}
+#'   \item{LSID_input}{LSID fornecido no input (se `col_lsid` for usado).}
+#' }
+#'
+#' Além disso, o objeto retornado contém atributos:
+#' \describe{
+#'   \item{tempo_execucao_seg}{Tempo total de execução (em segundos).}
+#'   \item{nomes_unicos}{Número de nomes únicos processados.}
+#'   \item{nomes_consultados}{Número de consultas realizadas (excluindo cache).}
+#' }
+#'
+#' @details
+#' \strong{Fluxo da função:}
+#' \enumerate{
+#'   \item Normaliza os nomes das espécies (função `spp_norm()`).
+#'   \item Remove duplicatas (nome + LSID).
+#'   \item Consulta primeiro o WSC (`arakno::checknames()`).
+#'   \item Complementa informações com o GBIF (`rgbif::name_backbone()`).
+#'   \item Armazena resultados em cache e checkpoint.
+#'   \item Reconstrói o `data.frame` final com os resultados.
+#' }
+#'
+#' \strong{Prioridade de dados:}
+#' \itemize{
+#'   \item Nome aceito: WSC (quando disponível).
+#'   \item Metadados adicionais: GBIF.
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' df <- data.frame(
+#'   Especie = c("actinopus anselmoi", "Phoneutria nigriventer", "loxosceles intermedia")
+#' )
+#'
+#' resultado <- correct_taxon(df)
+#'
+#' # Incluindo família
+#' resultado2 <- correct_taxon(df, include_family = TRUE)
+#'
+#' # Usando LSID prévio
+#' df$LSID_input <- c(NA, "urn:lsid:example:1", NA)
+#' resultado3 <- correct_taxon(df, col_lsid = "LSID_input")
+#' }
+#'
+#' @seealso
+#' \code{\link{spider_family}}, \code{\link{rgbif::name_backbone}},
+#' \code{\link{arakno::checknames}}
+#'
+#' @importFrom utils txtProgressBar setTxtProgressBar
+#' @export
+#'
+#' @author
+#' Victor Lobato dos Santos
+#'
+spp_norm <- function(x) {
+  x <- trimws(x)
+  x <- gsub("\\s+", " ", x)
+  x <- tolower(x)
+
+  parts <- strsplit(x, " ", fixed = TRUE)[[1]]
+  if (length(parts) >= 1 && nzchar(parts[1])) {
+    parts[1] <- paste0(toupper(substr(parts[1], 1, 1)), substr(parts[1], 2, nchar(parts[1])))
+  }
+
+  if (length(parts) > 1) {
+    parts[-1] <- tolower(parts[-1])
+  }
+
+  paste(parts, collapse = " ")
+}
+
+.lsid_normalize <- function(x) {
+  x <- trimws(as.character(x))
+  x[is.na(x)] <- ""
+  if (!nzchar(x)) return(NA_character_)
+  x
+}
+
+.cache_key <- function(name, lsid = NA_character_) {
+  if (is.null(lsid) || is.na(lsid) || !nzchar(lsid)) return(paste0("NAME::", name))
+  paste0("NAME::", name, "||LSID::", lsid)
+}
+
+.extract_first_matching_col <- function(df, patterns) {
+  if (!is.data.frame(df) || nrow(df) == 0) return(NA_character_)
+
+  nms <- names(df)
+  idx <- integer(0)
+  for (pat in patterns) {
+    idx <- which(grepl(pat, nms, ignore.case = TRUE))
+    if (length(idx) > 0) break
+  }
+
+  if (length(idx) == 0) return(NA_character_)
+
+  val <- df[[idx[1]]][1]
+  if (length(val) == 0 || is.na(val)) return(NA_character_)
+  as.character(val)
+}
+
+.query_wsc_arakno <- function(name) {
+  if (!requireNamespace("arakno", quietly = TRUE)) return(NULL)
+
+  fn <- NULL
+  if (exists("checknames", where = asNamespace("arakno"), inherits = FALSE)) {
+    fn <- get("checknames", envir = asNamespace("arakno"))
+  }
+  if (is.null(fn)) return(NULL)
+
+  tentativas <- list(
+    list(name),
+    list(species = name),
+    list(tax = name),
+    list(taxon = name)
+  )
+
+  out <- NULL
+  for (args in tentativas) {
+    tmp <- try(do.call(fn, args), silent = TRUE)
+    if (!inherits(tmp, "try-error")) {
+      out <- tmp
+      break
+    }
+  }
+
+  if (is.null(out)) return(NULL)
+
+  if (is.character(out) && length(out) >= 1) {
+    nome_out <- as.character(out[[1]])
+    if (grepl("^\\s*All\\s+taxa\\s+ok!?\\s*$", nome_out, ignore.case = TRUE)) {
+      nome_out <- name
+    }
+    return(list(
+      fonte = "WSC/arakno",
+      current_name = nome_out,
+      status = NA_character_,
+      synonym_of = NA_character_,
+      lsid = NA_character_,
+      observation = "Retorno textual de arakno::checknames"
+    ))
+  }
+
+  if (!is.data.frame(out) || nrow(out) == 0) return(NULL)
+
+  status <- .extract_first_matching_col(out, c("status", "state", "taxonomic"))
+  current_name <- .extract_first_matching_col(
+    out,
+    c("valid", "accepted", "current", "correct", "best", "match", "species")
+  )
+  if (!is.na(current_name) && grepl("^\\s*All\\s+taxa\\s+ok!?\\s*$", current_name, ignore.case = TRUE)) {
+    current_name <- name
+  }
+  sinonimo <- .extract_first_matching_col(out, c("synonym", "original", "input", "submitted"))
+  lsid <- .extract_first_matching_col(out, c("lsid", "urn", "identifier", "id"))
+
+  list(
+    fonte = "WSC/arakno",
+    current_name = current_name,
+    status = status,
+    synonym_of = if (!is.na(status) && grepl("syn", status, ignore.case = TRUE)) current_name else sinonimo,
+    family = .extract_first_matching_col(out, c("family", "family")),
+    lsid = lsid,
+    observation = "Retorno tabular de arakno::checknames"
+  )
+}
+
+.query_gbif <- function(name) {
+  if (!requireNamespace("rgbif", quietly = TRUE)) return(NULL)
+
+  out <- try(
+    rgbif::name_backbone(name = name, rank = "species", strict = FALSE, verbose = FALSE),
+    silent = TRUE
+  )
+
+  if (inherits(out, "try-error") || length(out) == 0) return(NULL)
+
+  current_name <- out$species %||% out$canonicalName %||% out$scientificName %||% name
+  status <- out$status %||% out$matchType %||% NA_character_
+  lsid <- out$scientificNameID %||% out$taxonID %||% NA_character_
+
+  list(
+    fonte = "GBIF/rgbif",
+    current_name = as.character(current_name),
+    status = as.character(status),
+    synonym_of = if (!is.null(out$acceptedUsageKey) && !is.na(out$acceptedUsageKey)) as.character(current_name) else NA_character_,
+    family = as.character(out$family %||% NA_character_),
+    lsid = as.character(lsid),
+    gbif_usagekey = as.character(out$usageKey %||% NA_character_),
+    confidence = as.character(out$confidence %||% NA_character_),
+    observation = as.character(out$note %||% NA_character_)
+  )
+}
+
+.resolve_nome_aranha <- function(name, lsid_input = NA_character_) {
+  padrao <- list(
+    fonte = NA_character_,
+    current_name = name,
+    status = NA_character_,
+    synonym_of = NA_character_,
+    family = NA_character_,
+    lsid = NA_character_,
+    gbif_usagekey = NA_character_,
+    confidence = NA_character_,
+    observation = NA_character_,
+    lsid_input = lsid_input
+  )
+
+  wsc <- .query_wsc_arakno(name)
+  gbif <- .query_gbif(name)
+
+  if (!is.null(wsc)) {
+    for (nm in names(wsc)) padrao[[nm]] <- wsc[[nm]]
+  }
+
+  if (!is.null(gbif)) {
+    # WSC tem prioridade para name atual de aranhas; GBIF complementa campos faltantes.
+    for (nm in names(gbif)) {
+      if (is.null(padrao[[nm]]) || is.na(padrao[[nm]]) || !nzchar(padrao[[nm]])) {
+        padrao[[nm]] <- gbif[[nm]]
+      }
+    }
+
+    if (is.na(padrao$fonte) || !nzchar(padrao$fonte)) {
+      padrao$fonte <- gbif$fonte
+    }
+  }
+
+  if (!is.na(lsid_input) && nzchar(lsid_input)) {
+    if (is.na(padrao$lsid) || !nzchar(padrao$lsid)) {
+      padrao$lsid <- lsid_input
+    } else if (!identical(padrao$lsid, lsid_input)) {
+      obs <- paste0("LSID input difere do retorno (input=", lsid_input, ").")
+      if (is.na(padrao$observation) || !nzchar(padrao$observation)) {
+        padrao$observation <- obs
+      } else {
+        padrao$observation <- paste(padrao$observation, obs, sep = " ")
+      }
+    }
+  }
+
+  padrao
+}
+
+#' Obtém a família taxonômica de uma espécie de aranha.
+#'
+#' @param especie name da espécie (ex: "Actinopus anselmoi").
+#' @return name da família ou `NA_character_` quando não encontrado.
+#' @export
+spider_family <- function(especie, lsid = NA_character_) {
+  name <- spp_norm(as.character(especie)[1])
+  if (!nzchar(name)) return(NA_character_)
+  lsid <- .lsid_normalize(lsid[1])
+  resolvido <- .resolve_nome_aranha(name, lsid_input = lsid)
+  as.character(resolvido$family %||% NA_character_)
+}
+
+#' Corrige nomenclatura taxonômica de aranhas (WSC + GBIF) com cache/checkpoint.
+#'
+#' @param df data.frame com a coluna de nomes das espécies.
+#' @param col_species name da coluna com os nomes das espécies (default: "Especie").
+#' @param cache_file arquivo .rds para cache persistente das consultas.
+#' @param checkpoint_file arquivo .rds para checkpoint e retomada em caso de interrupção.
+#' @param batch_size frequência de gravação do checkpoint/cache.
+#' @param sleep_s pausa em segundos entre consultas (útil para evitar rate limit).
+#' @param verbose exibe progresso, tempo e estimativa.
+#' @param include_family se `TRUE`, adiciona coluna `Familia` ao resultado.
+#' @param col_lsid coluna opcional do `df` com LSID já conhecido para auxiliar na resolução.
+#'
+#' @return data.frame original com colunas de taxonomia anexadas.
+#' @export
+correct_taxon <- function(
+    df,
+    col_species = "Especie",
+    cache_file = "cache_taxonomia_aranhas.rds",
+    checkpoint_file = "checkpoint_taxonomia_aranhas.rds",
+    batch_size = 100,
+    sleep_s = 0,
+    verbose = TRUE,
+    include_family = FALSE,
+    col_lsid = NULL
+) {
+  if (!is.data.frame(df)) stop("`df` deve ser um data.frame.")
+  if (!col_species %in% names(df)) stop(sprintf("Coluna `%s` não encontrada em `df`.", col_species))
+
+  input <- as.character(df[[col_species]])
+  input[is.na(input)] <- ""
+  input_norm <- vapply(input, spp_norm, character(1))
+  lsid_input <- rep(NA_character_, length(input_norm))
+  if (!is.null(col_lsid)) {
+    if (!col_lsid %in% names(df)) stop(sprintf("Coluna `%s` não encontrada em `df`.", col_lsid))
+    lsid_input <- vapply(df[[col_lsid]], .lsid_normalize, character(1))
+  }
+
+  pairs <- data.frame(
+    name = input_norm[nzchar(input_norm)],
+    lsid = lsid_input[nzchar(input_norm)],
+    stringsAsFactors = FALSE
+  )
+  pairs <- unique(pairs)
+  keys <- mapply(.cache_key, pairs$name, pairs$lsid, USE.NAMES = FALSE)
+  pairs$key <- keys
+
+  cache <- list()
+  if (file.exists(cache_file)) {
+    tmp <- readRDS(cache_file)
+    if (is.list(tmp)) cache <- tmp
+  }
+
+  results <- cache
+  pending <- setdiff(pairs$key, names(results))
+
+  if (file.exists(checkpoint_file)) {
+    cp <- readRDS(checkpoint_file)
+    if (is.list(cp)) {
+      if (!is.null(cp$results) && is.list(cp$results)) results <- cp$results
+      if (!is.null(cp$pending)) pending <- intersect(cp$pending, pairs$key)
+      pending <- union(pending, setdiff(pairs$key, names(results)))
+    }
+  }
+
+  n_total <- length(pending)
+  t0 <- Sys.time()
+
+  if (verbose) {
+    message(sprintf("Iniciando resolução taxonômica: %d nomes únicos pending.", n_total))
+  }
+
+  if (n_total > 0 && verbose) {
+    pb <- txtProgressBar(min = 0, max = n_total, style = 3)
+  }
+
+  for (i in seq_along(pending)) {
+    chave <- pending[[i]]
+    idx <- match(chave, pairs$key)
+    nm <- pairs$name[[idx]]
+    ls <- pairs$lsid[[idx]]
+    results[[chave]] <- .resolve_nome_aranha(nm, lsid_input = ls)
+
+    if (n_total > 0 && verbose) {
+      setTxtProgressBar(pb, i)
+      if (i %% max(1, floor(n_total / 20)) == 0 || i == n_total) {
+        elapsed <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+        rate <- i / max(elapsed, 1e-6)
+        eta <- (n_total - i) / max(rate, 1e-6)
+        message(sprintf("  %d/%d | %.2f nomes/s | ETA ~ %.1fs", i, n_total, rate, eta))
+      }
+    }
+
+    if (i %% batch_size == 0 || i == n_total) {
+      saveRDS(results, cache_file)
+      cp <- list(
+        results = results,
+        pending = if (i < n_total) pending[(i + 1):n_total] else character(0),
+        updated_on = Sys.time()
+      )
+      saveRDS(cp, checkpoint_file)
+    }
+
+    if (sleep_s > 0) Sys.sleep(sleep_s)
+  }
+
+  if (n_total > 0 && verbose) close(pb)
+
+  saveRDS(results, cache_file)
+  if (file.exists(checkpoint_file)) file.remove(checkpoint_file)
+
+  extract <- function(name, lsid, campo) {
+    if (!nzchar(name)) return(NA_character_)
+    k <- .cache_key(name, lsid)
+    x <- results[[k]]
+    if (is.null(x) || is.null(x[[campo]]) || is.na(x[[campo]])) return(NA_character_)
+    as.character(x[[campo]])
+  }
+
+  output <- df
+  output$Especie_normalizada <- input_norm
+  output$Especie_atual <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "current_name"), USE.NAMES = FALSE)
+  output$Fonte_taxonomia <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "fonte"), USE.NAMES = FALSE)
+  output$Status_taxonomico <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "status"), USE.NAMES = FALSE)
+  output$Sinonimo_de <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "synonym_of"), USE.NAMES = FALSE)
+  output$LSID <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "lsid"), USE.NAMES = FALSE)
+  output$GBIF_usageKey <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "gbif_usagekey"), USE.NAMES = FALSE)
+  output$Confianca_match <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "confidence"), USE.NAMES = FALSE)
+  output$Observacao_taxonomia <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "observation"), USE.NAMES = FALSE)
+  if (isTRUE(include_family)) {
+    output$Familia <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "family"), USE.NAMES = FALSE)
+  }
+  if (!is.null(col_lsid)) {
+    output$LSID_input <- lsid_input
+  }
+
+  attr(output, "tempo_execucao_seg") <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  attr(output, "nomes_unicos") <- nrow(pairs)
+  attr(output, "nomes_consultados") <- n_total
+
+  output
+}
