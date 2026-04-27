@@ -1,21 +1,5 @@
 Package: Arachnomicon
 Type: Package
-Title: What the Package Does (Title Case)
-Version: 0.1.0
-Authors@R: c(
-    person(
-      "Jane", "Doe",
-      email = "jane@example.com",
-      role = c("aut", "cre")
-    )
-  )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
-License: What license is it under?
-Encoding: UTF-8
-LazyData: true
-Package: Arachnomicon
-Type: Package
 Title: Taxonomic Standardization of Spider Species Names Using WSC and GBIF
 Version: 0.1.0
 Authors@R: 
@@ -23,7 +7,7 @@ Authors@R:
       given = "Victor",
       family = "Lobato",
       role = c("aut", "cre"),
-      email = "seu_email_aqui@example.com"
+      email = "vlobatosantos@gmail.com"
     )
 Description: 
     Tools to standardize and resolve spider species names using the World Spider
