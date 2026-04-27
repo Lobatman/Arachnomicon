@@ -5,7 +5,7 @@ Version: 0.1.0
 Authors@R: 
     person(
       given = "Victor",
-      family = "Lobato",
+      family = "Lobato dos Santos",
       role = c("aut", "cre"),
       email = "vlobatosantos@gmail.com"
     )
@@ -15,6 +15,7 @@ Description:
     nomenclature, resolves synonyms, retrieves LSIDs, and optionally returns
     taxonomic family information. Includes caching and checkpoint mechanisms
     for efficient large-scale queries.
+Maintainer: Victor Lobato dos Santos <vlobatosantos@gmail.com>
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
