@@ -1,7 +1,7 @@
 Package: Arachnomicon
 Type: Package
 Title: Taxonomic Standardization of Spider Species Names Using WSC and GBIF
-Version: 0.1.0
+Version: 0.1.2
 Authors@R: 
     person(
       given = "Victor",
@@ -35,4 +35,4 @@ Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 URL: https://github.com/Lobatman/Arachnomicon
-BugReports: https://github.com/seu_Lobatman/Arachnomicon/issues
+BugReports: https://github.com/Lobatman/Arachnomicon/issues
