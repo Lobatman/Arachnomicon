@@ -16,7 +16,7 @@ Description:
     taxonomic family information. Includes caching and checkpoint mechanisms
     for efficient large-scale queries.
 Maintainer: Victor Lobato dos Santos <vlobatosantos@gmail.com>
-License: MIT + file LICENSE
+License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
