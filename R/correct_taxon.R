@@ -1,97 +1,30 @@
-#' Corrige nomenclatura taxonômica de aranhas usando WSC (arakno) e GBIF (rgbif)
+#' Padroniza nomes científicos
 #'
-#' Esta função padroniza e atualiza nomes de espécies de aranhas a partir de um
-#' `data.frame`, consultando o World Spider Catalogue (via pacote `arakno`) e o
-#' GBIF (via pacote `rgbif`). O WSC tem prioridade para nomes aceitos, enquanto
-#' o GBIF complementa metadados como LSID, família e nível de confiança.
+#' Normaliza nomes científicos removendo espaços extras,
+#' convertendo todo o texto para minúsculo e aplicando
+#' capitalização correta ao gênero.
 #'
-#' A função utiliza um sistema de cache persistente (`.rds`) para evitar consultas
-#' repetidas e um mecanismo de checkpoint para retomar execuções interrompidas.
+#' @param x Vetor de caracteres contendo nomes científicos.
 #'
-#' @param df `data.frame` contendo a coluna com os nomes das espécies.
-#' @param col_species `character`. Nome da coluna com os nomes das espécies.
-#'   Default é `"Especie"`.
-#' @param cache_file `character`. Caminho para o arquivo `.rds` usado como cache
-#'   persistente das consultas. Default é `"cache_taxonomia_aranhas.rds"`.
-#' @param checkpoint_file `character`. Caminho para o arquivo `.rds` usado como
-#'   checkpoint para retomada em caso de interrupção. Default é
-#'   `"checkpoint_taxonomia_aranhas.rds"`.
-#' @param batch_size `numeric`. Número de consultas entre salvamentos do cache
-#'   e checkpoint. Default é `100`.
-#' @param sleep_s `numeric`. Tempo (em segundos) de pausa entre consultas, útil
-#'   para evitar limites de requisição (rate limit). Default é `0`.
-#' @param verbose `logical`. Se `TRUE`, exibe barra de progresso e estimativas
-#'   de tempo. Default é `TRUE`.
-#' @param include_family `logical`. Se `TRUE`, adiciona a coluna `Familia` ao
-#'   resultado final. Default é `FALSE`.
-#' @param col_lsid `character` ou `NULL`. Nome da coluna contendo LSIDs já
-#'   conhecidos para auxiliar na resolução taxonômica. Default é `NULL`.
-#'
-#' @return Um `data.frame` com as colunas originais acrescidas de:
-#' \describe{
-#'   \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
-#'   \item{Especie_atual}{Nome aceito mais recente da espécie.}
-#'   \item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
-#'   \item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
-#'   \item{Sinonimo_de}{Nome aceito caso o original seja sinônimo.}
-#'   \item{LSID}{Identificador taxonômico (quando disponível).}
-#'   \item{GBIF_usageKey}{Identificador único do GBIF.}
-#'   \item{Confianca_match}{Nível de confiança do match no GBIF.}
-#'   \item{Observacao_taxonomia}{Observações adicionais do processo de resolução.}
-#'   \item{Familia}{Família taxonômica (opcional, se `include_family = TRUE`).}
-#'   \item{LSID_input}{LSID fornecido no input (se `col_lsid` for usado).}
-#' }
-#'
-#' Além disso, o objeto retornado contém atributos:
-#' \describe{
-#'   \item{tempo_execucao_seg}{Tempo total de execução (em segundos).}
-#'   \item{nomes_unicos}{Número de nomes únicos processados.}
-#'   \item{nomes_consultados}{Número de consultas realizadas (excluindo cache).}
-#' }
+#' @return Um vetor de caracteres com os nomes padronizados.
 #'
 #' @details
-#' \strong{Fluxo da função:}
-#' \enumerate{
-#'   \item Normaliza os nomes das espécies (função `spp_norm()`).
-#'   \item Remove duplicatas (nome + LSID).
-#'   \item Consulta primeiro o WSC (`arakno::checknames()`).
-#'   \item Complementa informações com o GBIF (`rgbif::name_backbone()`).
-#'   \item Armazena resultados em cache e checkpoint.
-#'   \item Reconstrói o `data.frame` final com os resultados.
-#' }
-#'
-#' \strong{Prioridade de dados:}
+#' A função:
 #' \itemize{
-#'   \item Nome aceito: WSC (quando disponível).
-#'   \item Metadados adicionais: GBIF.
+#'   \item Remove espaços no início e no fim;
+#'   \item Substitui múltiplos espaços por um único espaço;
+#'   \item Converte o texto para minúsculo;
+#'   \item Capitaliza apenas a primeira letra do gênero.
 #' }
 #'
 #' @examples
-#' \dontrun{
-#' df <- data.frame(
-#'   Especie = c("actinopus anselmoi", "Phoneutria nigriventer", "loxosceles intermedia")
-#' )
+#' spp_norm("   ACTINOPUS   ANSELMOI ")
+#' # "Actinopus anselmoi"
 #'
-#' resultado <- correct_taxon(df)
+#' spp_norm("LOXOSCELES intermedia")
+#' # "Loxosceles intermedia"
 #'
-#' # Incluindo família
-#' resultado2 <- correct_taxon(df, include_family = TRUE)
-#'
-#' # Usando LSID prévio
-#' df$LSID_input <- c(NA, "urn:lsid:example:1", NA)
-#' resultado3 <- correct_taxon(df, col_lsid = "LSID_input")
-#' }
-#'
-#' @seealso
-#' \code{\link{spider_family}}, \code{\link{rgbif::name_backbone}},
-#' \code{\link{arakno::checknames}}
-#'
-#' @importFrom utils txtProgressBar setTxtProgressBar
 #' @export
-#'
-#' @author
-#' Victor Lobato dos Santos
-#'
 spp_norm <- function(x) {
   x <- trimws(x)
   x <- gsub("\\s+", " ", x)
@@ -281,33 +214,102 @@ spp_norm <- function(x) {
   padrao
 }
 
-#' Obtém a família taxonômica de uma espécie de aranha.
-#'
-#' @param especie name da espécie (ex: "Actinopus anselmoi").
-#' @return name da família ou `NA_character_` quando não encontrado.
-#' @export
-spider_family <- function(especie, lsid = NA_character_) {
-  name <- spp_norm(as.character(especie)[1])
-  if (!nzchar(name)) return(NA_character_)
-  lsid <- .lsid_normalize(lsid[1])
-  resolvido <- .resolve_nome_aranha(name, lsid_input = lsid)
-  as.character(resolvido$family %||% NA_character_)
-}
 
-#' Corrige nomenclatura taxonômica de aranhas (WSC + GBIF) com cache/checkpoint.
+
+#' Corrige nomenclatura taxonômica de aranhas usando WSC (arakno) e GBIF (rgbif)
 #'
-#' @param df data.frame com a coluna de nomes das espécies.
-#' @param col_species name da coluna com os nomes das espécies (default: "Especie").
-#' @param cache_file arquivo .rds para cache persistente das consultas.
-#' @param checkpoint_file arquivo .rds para checkpoint e retomada em caso de interrupção.
-#' @param batch_size frequência de gravação do checkpoint/cache.
-#' @param sleep_s pausa em segundos entre consultas (útil para evitar rate limit).
-#' @param verbose exibe progresso, tempo e estimativa.
-#' @param include_family se `TRUE`, adiciona coluna `Familia` ao resultado.
-#' @param col_lsid coluna opcional do `df` com LSID já conhecido para auxiliar na resolução.
+#' Esta função padroniza e atualiza nomes de espécies de aranhas a partir de um
+#' `data.frame`, consultando o World Spider Catalogue (via pacote `arakno`) e o
+#' GBIF (via pacote `rgbif`). O WSC tem prioridade para nomes aceitos, enquanto
+#' o GBIF complementa metadados como LSID, família e nível de confiança.
 #'
-#' @return data.frame original com colunas de taxonomia anexadas.
+#' A função utiliza um sistema de cache persistente (`.rds`) para evitar consultas
+#' repetidas e um mecanismo de checkpoint para retomar execuções interrompidas.
+#'
+#' @param df `data.frame` contendo a coluna com os nomes das espécies.
+#' @param col_species `character`. Nome da coluna com os nomes das espécies.
+#'   Default é `"Especie"`.
+#' @param cache_file `character`. Caminho para o arquivo `.rds` usado como cache
+#'   persistente das consultas. Default é `"cache_taxonomia_aranhas.rds"`.
+#' @param checkpoint_file `character`. Caminho para o arquivo `.rds` usado como
+#'   checkpoint para retomada em caso de interrupção. Default é
+#'   `"checkpoint_taxonomia_aranhas.rds"`.
+#' @param batch_size `numeric`. Número de consultas entre salvamentos do cache
+#'   e checkpoint. Default é `100`.
+#' @param sleep_s `numeric`. Tempo (em segundos) de pausa entre consultas, útil
+#'   para evitar limites de requisição (rate limit). Default é `0`.
+#' @param verbose `logical`. Se `TRUE`, exibe barra de progresso e estimativas
+#'   de tempo. Default é `TRUE`.
+#' @param include_family `logical`. Se `TRUE`, adiciona a coluna `Familia` ao
+#'   resultado final. Default é `FALSE`.
+#' @param col_lsid `character` ou `NULL`. Nome da coluna contendo LSIDs já
+#'   conhecidos para auxiliar na resolução taxonômica. Default é `NULL`.
+#'
+#' @return Um `data.frame` com as colunas originais acrescidas de:
+#' \describe{
+#'   \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
+#'   \item{Especie_atual}{Nome aceito mais recente da espécie.}
+#'   \item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
+#'   \item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
+#'   \item{Sinonimo_de}{Nome aceito caso o original seja sinônimo.}
+#'   \item{LSID}{Identificador taxonômico (quando disponível).}
+#'   \item{GBIF_usageKey}{Identificador único do GBIF.}
+#'   \item{Confianca_match}{Nível de confiança do match no GBIF.}
+#'   \item{Observacao_taxonomia}{Observações adicionais do processo de resolução.}
+#'   \item{Familia}{Família taxonômica (opcional, se `include_family = TRUE`).}
+#'   \item{LSID_input}{LSID fornecido no input (se `col_lsid` for usado).}
+#' }
+#'
+#' Além disso, o objeto retornado contém atributos:
+#' \describe{
+#'   \item{tempo_execucao_seg}{Tempo total de execução (em segundos).}
+#'   \item{nomes_unicos}{Número de nomes únicos processados.}
+#'   \item{nomes_consultados}{Número de consultas realizadas (excluindo cache).}
+#' }
+#'
+#' @details
+#' \strong{Fluxo da função:}
+#' \enumerate{
+#'   \item Normaliza os nomes das espécies (função `spp_norm()`).
+#'   \item Remove duplicatas (nome + LSID).
+#'   \item Consulta primeiro o WSC (`arakno::checknames()`).
+#'   \item Complementa informações com o GBIF (`rgbif::name_backbone()`).
+#'   \item Armazena resultados em cache e checkpoint.
+#'   \item Reconstrói o `data.frame` final com os resultados.
+#' }
+#'
+#' \strong{Prioridade de dados:}
+#' \itemize{
+#'   \item Nome aceito: WSC (quando disponível).
+#'   \item Metadados adicionais: GBIF.
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' df <- data.frame(
+#'   Especie = c("actinopus anselmoi", "Phoneutria nigriventer", "loxosceles intermedia")
+#' )
+#'
+#' resultado <- correct_taxon(df)
+#'
+#' # Incluindo família
+#' resultado2 <- correct_taxon(df, include_family = TRUE)
+#'
+#' # Usando LSID prévio
+#' df$LSID_input <- c(NA, "urn:lsid:example:1", NA)
+#' resultado3 <- correct_taxon(df, col_lsid = "LSID_input")
+#' }
+#'
+#' @seealso
+#' \code{\link{spider_family}}, \code{\link{rgbif::name_backbone}},
+#' \code{\link{arakno::checknames}}
+#'
+#' @importFrom utils txtProgressBar setTxtProgressBar
 #' @export
+#'
+#' @author
+#' Victor Lobato dos Santos
+#'
 correct_taxon <- function(
     df,
     col_species = "Especie",

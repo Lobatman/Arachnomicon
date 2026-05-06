@@ -1,10 +1,7 @@
-#' Get Spider Family
+#' Obtém a família taxonômica de uma espécie de aranha.
 #'
-#' Returns the taxonomic family of a spider species.
-#'
-#' @param especie Species name.
-#' @param lsid Optional LSID.
-#' @return Character with family name.
+#' @param especie name da espécie (ex: "Actinopus anselmoi").
+#' @return name da família ou `NA_character_` quando não encontrado.
 #' @export
 spider_family <- function(especie, lsid = NA_character_) {
   name <- spp_norm(as.character(especie)[1])

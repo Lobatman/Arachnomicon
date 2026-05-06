@@ -2,108 +2,35 @@
 % Please edit documentation in R/correct_taxon.R
 \name{spp_norm}
 \alias{spp_norm}
-\title{Corrige nomenclatura taxonômica de aranhas usando WSC (arakno) e GBIF (rgbif)}
+\title{Padroniza nomes científicos}
 \usage{
 spp_norm(x)
 }
 \arguments{
-\item{df}{\code{data.frame} contendo a coluna com os nomes das espécies.}
-
-\item{col_species}{\code{character}. Nome da coluna com os nomes das espécies.
-Default é \code{"Especie"}.}
-
-\item{cache_file}{\code{character}. Caminho para o arquivo \code{.rds} usado como cache
-persistente das consultas. Default é \code{"cache_taxonomia_aranhas.rds"}.}
-
-\item{checkpoint_file}{\code{character}. Caminho para o arquivo \code{.rds} usado como
-checkpoint para retomada em caso de interrupção. Default é
-\code{"checkpoint_taxonomia_aranhas.rds"}.}
-
-\item{batch_size}{\code{numeric}. Número de consultas entre salvamentos do cache
-e checkpoint. Default é \code{100}.}
-
-\item{sleep_s}{\code{numeric}. Tempo (em segundos) de pausa entre consultas, útil
-para evitar limites de requisição (rate limit). Default é \code{0}.}
-
-\item{verbose}{\code{logical}. Se \code{TRUE}, exibe barra de progresso e estimativas
-de tempo. Default é \code{TRUE}.}
-
-\item{include_family}{\code{logical}. Se \code{TRUE}, adiciona a coluna \code{Familia} ao
-resultado final. Default é \code{FALSE}.}
-
-\item{col_lsid}{\code{character} ou \code{NULL}. Nome da coluna contendo LSIDs já
-conhecidos para auxiliar na resolução taxonômica. Default é \code{NULL}.}
+\item{x}{Vetor de caracteres contendo nomes científicos.}
 }
 \value{
-Um \code{data.frame} com as colunas originais acrescidas de:
-\describe{
-\item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
-\item{Especie_atual}{Nome aceito mais recente da espécie.}
-\item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
-\item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
-\item{Sinonimo_de}{Nome aceito caso o original seja sinônimo.}
-\item{LSID}{Identificador taxonômico (quando disponível).}
-\item{GBIF_usageKey}{Identificador único do GBIF.}
-\item{Confianca_match}{Nível de confiança do match no GBIF.}
-\item{Observacao_taxonomia}{Observações adicionais do processo de resolução.}
-\item{Familia}{Família taxonômica (opcional, se \code{include_family = TRUE}).}
-\item{LSID_input}{LSID fornecido no input (se \code{col_lsid} for usado).}
-}
-
-Além disso, o objeto retornado contém atributos:
-\describe{
-\item{tempo_execucao_seg}{Tempo total de execução (em segundos).}
-\item{nomes_unicos}{Número de nomes únicos processados.}
-\item{nomes_consultados}{Número de consultas realizadas (excluindo cache).}
-}
+Um vetor de caracteres com os nomes padronizados.
 }
 \description{
-Esta função padroniza e atualiza nomes de espécies de aranhas a partir de um
-\code{data.frame}, consultando o World Spider Catalogue (via pacote \code{arakno}) e o
-GBIF (via pacote \code{rgbif}). O WSC tem prioridade para nomes aceitos, enquanto
-o GBIF complementa metadados como LSID, família e nível de confiança.
+Normaliza nomes científicos removendo espaços extras,
+convertendo todo o texto para minúsculo e aplicando
+capitalização correta ao gênero.
 }
 \details{
-A função utiliza um sistema de cache persistente (\code{.rds}) para evitar consultas
-repetidas e um mecanismo de checkpoint para retomar execuções interrompidas.
-
-\strong{Fluxo da função:}
-\enumerate{
-\item Normaliza os nomes das espécies (função \code{spp_norm()}).
-\item Remove duplicatas (nome + LSID).
-\item Consulta primeiro o WSC (\code{arakno::checknames()}).
-\item Complementa informações com o GBIF (\code{rgbif::name_backbone()}).
-\item Armazena resultados em cache e checkpoint.
-\item Reconstrói o \code{data.frame} final com os resultados.
-}
-
-\strong{Prioridade de dados:}
+A função:
 \itemize{
-\item Nome aceito: WSC (quando disponível).
-\item Metadados adicionais: GBIF.
+\item Remove espaços no início e no fim;
+\item Substitui múltiplos espaços por um único espaço;
+\item Converte o texto para minúsculo;
+\item Capitaliza apenas a primeira letra do gênero.
 }
 }
 \examples{
-\dontrun{
-df <- data.frame(
-  Especie = c("actinopus anselmoi", "Phoneutria nigriventer", "loxosceles intermedia")
-)
+spp_norm("   ACTINOPUS   ANSELMOI ")
+# "Actinopus anselmoi"
 
-resultado <- correct_taxon(df)
+spp_norm("LOXOSCELES intermedia")
+# "Loxosceles intermedia"
 
-# Incluindo família
-resultado2 <- correct_taxon(df, include_family = TRUE)
-
-# Usando LSID prévio
-df$LSID_input <- c(NA, "urn:lsid:example:1", NA)
-resultado3 <- correct_taxon(df, col_lsid = "LSID_input")
-}
-
-}
-\seealso{
-\code{\link{spider_family}}, \code{\link{rgbif::name_backbone}},
-\code{\link{arakno::checknames}}
-}
-\author{
-Victor Lobato dos Santos
 }
