@@ -248,10 +248,10 @@ spp_norm <- function(x) {
 #' @return Um `data.frame` com as colunas originais acrescidas de:
 #' \describe{
 #'   \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
-#'   \item{Especie_atual}{Nome aceito mais recente da espécie.}
+#'   \item{Especie_match}{Possível nome aceito mais recente da espécie (conferir coluna "sinonimo_de".}
 #'   \item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
 #'   \item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
-#'   \item{Sinonimo_de}{Nome aceito caso o original seja sinônimo.}
+#'   \item{Sinonimo_de}{Nome aceito caso o original (Especie_match) seja sinônimo ou nomen dubium.}
 #'   \item{LSID}{Identificador taxonômico (quando disponível).}
 #'   \item{GBIF_usageKey}{Identificador único do GBIF.}
 #'   \item{Confianca_match}{Nível de confiança do match no GBIF.}
@@ -416,7 +416,7 @@ correct_taxon <- function(
 
   output <- df
   output$Especie_normalizada <- input_norm
-  output$Especie_atual <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "current_name"), USE.NAMES = FALSE)
+  output$Especie_match <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "current_name"), USE.NAMES = FALSE)
   output$Fonte_taxonomia <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "fonte"), USE.NAMES = FALSE)
   output$Status_taxonomico <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "status"), USE.NAMES = FALSE)
   output$Sinonimo_de <- mapply(extract, input_norm, lsid_input, MoreArgs = list(campo = "synonym_of"), USE.NAMES = FALSE)
