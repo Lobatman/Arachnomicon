@@ -48,10 +48,10 @@ conhecidos para auxiliar na resolução taxonômica. Default é \code{NULL}.}
 Um \code{data.frame} com as colunas originais acrescidas de:
 \describe{
 \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
-\item{Especie_atual}{Nome aceito mais recente da espécie.}
+\item{Especie_match}{Possível nome aceito mais recente da espécie (conferir coluna "sinonimo_de".}
 \item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
 \item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
-\item{Sinonimo_de}{Nome aceito caso o original seja sinônimo.}
+\item{Sinonimo_de}{Nome aceito caso o original (Especie_match) seja sinônimo ou nomen dubium.}
 \item{LSID}{Identificador taxonômico (quando disponível).}
 \item{GBIF_usageKey}{Identificador único do GBIF.}
 \item{Confianca_match}{Nível de confiança do match no GBIF.}
