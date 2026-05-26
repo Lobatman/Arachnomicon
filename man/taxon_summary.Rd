@@ -6,7 +6,7 @@
 \usage{
 taxon_summary(
   df,
-  col_current = "Especie_atual",
+  col_current = "Especie_match",
   col_normalized = "Especie_normalizada",
   col_status = "Status_taxonomico",
   col_synonym = "Sinonimo_de",
@@ -40,7 +40,7 @@ Calcula métricas simples a partir da saída de \code{correct_taxon()}.
 \examples{
 df_corrigido <- data.frame(
   Especie_normalizada = c("Actinopus anselmoi", "Phoneutria nigriventer", "Loxosceles intermedia"),
-  Especie_atual = c("Actinopus anselmoi", "Phoneutria fera", "Loxosceles intermedia"),
+  Especie_match = c("Actinopus anselmoi", "Phoneutria fera", "Loxosceles intermedia"),
   Fonte_taxonomia = c("WSC/arakno", "WSC/arakno", "GBIF/rgbif"),
   Status_taxonomico = c("accepted", "synonym", "accepted"),
   Sinonimo_de = c(NA, "Phoneutria fera", NA),
