@@ -5,5 +5,5 @@ test_that("correct_taxon runs", {
 
   res <- correct_taxon(df)
 
-  expect_true("Especie_atual" %in% names(res))
+  expect_true("Especie_match" %in% names(res))
 })
