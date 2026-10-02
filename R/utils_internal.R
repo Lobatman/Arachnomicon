@@ -1,20 +1,5 @@
-`%||%` <- function(a, b) if (!is.null(a) && !is.na(a)) a else b
-
-spp_norm <- function(x) {
-  x <- trimws(x)
-  x <- gsub("\\s+", " ", x)
-  x <- tolower(x)
-
-  parts <- strsplit(x, " ", fixed = TRUE)[[1]]
-  if (length(parts) >= 1 && nzchar(parts[1])) {
-    parts[1] <- paste0(toupper(substr(parts[1], 1, 1)), substr(parts[1], 2, nchar(parts[1])))
-  }
-
-  if (length(parts) > 1) {
-    parts[-1] <- tolower(parts[-1])
-  }
-
-  paste(parts, collapse = " ")
+`%||%` <- function(a, b) {
+  if (!is.null(a) && length(a) > 0 && !is.na(a[1])) a else b
 }
 
 .lsid_normalize <- function(x) {
@@ -24,7 +9,16 @@ spp_norm <- function(x) {
   x
 }
 
+# O prefixo de versao invalida caches gravados por versoes anteriores do
+# pacote, cujos resultados tinham outra estrutura.
 .cache_key <- function(name, lsid = NA_character_) {
-  if (is.null(lsid) || is.na(lsid) || !nzchar(lsid)) return(paste0("NAME::", name))
-  paste0("NAME::", name, "||LSID::", lsid)
+  if (is.null(lsid) || is.na(lsid) || !nzchar(lsid)) return(paste0("v2::NAME::", name))
+  paste0("v2::NAME::", name, "||LSID::", lsid)
+}
+
+.paste_obs <- function(...) {
+  x <- unlist(list(...))
+  x <- x[!is.na(x) & nzchar(x)]
+  if (length(x) == 0) return(NA_character_)
+  paste(x, collapse = "; ")
 }

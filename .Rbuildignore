@@ -4,3 +4,7 @@
 ^\.gitignore$
 ^\.github$
 ^LICENSE\.md$
+^\.Rhistory$
+^\.RData$
+^R/\.Rhistory$
+^.*\.rds$

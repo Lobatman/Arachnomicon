@@ -1,140 +1,95 @@
-#' Padroniza nomes científicos
-#'
-#' Normaliza nomes científicos removendo espaços extras,
-#' convertendo todo o texto para minúsculo e aplicando
-#' capitalização correta ao gênero.
-#'
-#' @param x Vetor de caracteres contendo nomes científicos.
-#'
-#' @return Um vetor de caracteres com os nomes padronizados.
-#'
-#' @details
-#' A função:
-#' \itemize{
-#'   \item Remove espaços no início e no fim;
-#'   \item Substitui múltiplos espaços por um único espaço;
-#'   \item Converte o texto para minúsculo;
-#'   \item Capitaliza apenas a primeira letra do gênero.
-#' }
-#'
-#' @examples
-#' spp_norm("   ACTINOPUS   ANSELMOI ")
-#' # "Actinopus anselmoi"
-#'
-#' spp_norm("LOXOSCELES intermedia")
-#' # "Loxosceles intermedia"
-#'
-#' @export
-spp_norm <- function(x) {
-  x <- trimws(x)
-  x <- gsub("\\s+", " ", x)
-  x <- tolower(x)
+# Distancia de edicao maxima (em caracteres) para aceitar a correcao de grafia
+# sugerida pelo WSC. Acima disso, a sugestao costuma ser outra especie.
+.max_misspelling_dist <- 2
 
-  parts <- strsplit(x, " ", fixed = TRUE)[[1]]
-  if (length(parts) >= 1 && nzchar(parts[1])) {
-    parts[1] <- paste0(toupper(substr(parts[1], 1, 1)), substr(parts[1], 2, nchar(parts[1])))
+# Registro do WSC (familia e LSID) para um nome valido. O `arakno` guarda a
+# tabela do WSC no ambiente global (`wscData`) ao chamar `arakno::wsc()`.
+.wsc_record <- function(name) {
+  d <- tryCatch(get("wscData", envir = globalenv()), error = function(e) NULL)
+  if (!is.data.frame(d) || is.na(name)) return(NULL)
+
+  subsp <- as.character(d$subspecies)
+  subsp[is.na(subsp)] <- ""
+  i <- which(d$name == name & !nzchar(subsp))
+  if (length(i) > 0) {
+    return(list(family = as.character(d$family[i[1]]),
+                lsid = as.character(d$species_lsid[i[1]])))
   }
 
-  if (length(parts) > 1) {
-    parts[-1] <- tolower(parts[-1])
+  i <- which(d$genus == name)
+  if (length(i) > 0) {
+    return(list(family = as.character(d$family[i[1]]), lsid = NA_character_))
   }
 
-  paste(parts, collapse = " ")
-}
-
-.lsid_normalize <- function(x) {
-  x <- trimws(as.character(x))
-  x[is.na(x)] <- ""
-  if (!nzchar(x)) return(NA_character_)
-  x
-}
-
-.cache_key <- function(name, lsid = NA_character_) {
-  if (is.null(lsid) || is.na(lsid) || !nzchar(lsid)) return(paste0("NAME::", name))
-  paste0("NAME::", name, "||LSID::", lsid)
-}
-
-.extract_first_matching_col <- function(df, patterns) {
-  if (!is.data.frame(df) || nrow(df) == 0) return(NA_character_)
-
-  nms <- names(df)
-  idx <- integer(0)
-  for (pat in patterns) {
-    idx <- which(grepl(pat, nms, ignore.case = TRUE))
-    if (length(idx) > 0) break
-  }
-
-  if (length(idx) == 0) return(NA_character_)
-
-  val <- df[[idx[1]]][1]
-  if (length(val) == 0 || is.na(val)) return(NA_character_)
-  as.character(val)
+  NULL
 }
 
 .query_wsc_arakno <- function(name) {
   if (!requireNamespace("arakno", quietly = TRUE)) return(NULL)
 
-  fn <- NULL
-  if (exists("checknames", where = asNamespace("arakno"), inherits = FALSE)) {
-    fn <- get("checknames", envir = asNamespace("arakno"))
-  }
-  if (is.null(fn)) return(NULL)
+  out <- try(arakno::checkNames(name), silent = TRUE)
+  if (inherits(out, "try-error")) return(NULL)
 
-  tentativas <- list(
-    list(name),
-    list(species = name),
-    list(tax = name),
-    list(taxon = name)
-  )
-
-  out <- NULL
-  for (args in tentativas) {
-    tmp <- try(do.call(fn, args), silent = TRUE)
-    if (!inherits(tmp, "try-error")) {
-      out <- tmp
-      break
-    }
+  if (is.character(out)) {
+    # "All taxa OK!": o nome existe como valido no WSC.
+    best <- name
+    note <- "Ok"
+    alt <- NA_character_
+  } else if (is.data.frame(out) && nrow(out) > 0) {
+    best <- as.character(out[1, 2])
+    note <- as.character(out[1, 3])
+    alt <- as.character(out[1, 4])
+  } else {
+    return(NULL)
   }
 
-  if (is.null(out)) return(NULL)
-
-  if (is.character(out) && length(out) >= 1) {
-    nome_out <- as.character(out[[1]])
-    if (grepl("^\\s*All\\s+taxa\\s+ok!?\\s*$", nome_out, ignore.case = TRUE)) {
-      nome_out <- name
-    }
-    return(list(
-      fonte = "WSC/arakno",
-      current_name = nome_out,
-      status = NA_character_,
-      synonym_of = NA_character_,
-      lsid = NA_character_,
-      observation = "Retorno textual de arakno::checknames"
-    ))
-  }
-
-  if (!is.data.frame(out) || nrow(out) == 0) return(NULL)
-
-  status <- .extract_first_matching_col(out, c("status", "state", "taxonomic"))
-  current_name <- .extract_first_matching_col(
-    out,
-    c("valid", "accepted", "current", "correct", "best", "match", "species")
-  )
-  if (!is.na(current_name) && grepl("^\\s*All\\s+taxa\\s+ok!?\\s*$", current_name, ignore.case = TRUE)) {
-    current_name <- name
-  }
-  sinonimo <- .extract_first_matching_col(out, c("synonym", "original", "input", "submitted"))
-  lsid <- .extract_first_matching_col(out, c("lsid", "urn", "identifier", "id"))
-
-  list(
+  res <- list(
     fonte = "WSC/arakno",
-    current_name = current_name,
-    status = status,
-    synonym_of = if (!is.na(status) && grepl("syn", status, ignore.case = TRUE)) current_name else sinonimo,
-    family = .extract_first_matching_col(out, c("family", "family")),
-    lsid = lsid,
-    observation = "Retorno tabular de arakno::checknames"
+    current_name = NA_character_,
+    status = NA_character_,
+    synonym_of = NA_character_,
+    family = NA_character_,
+    lsid = NA_character_,
+    observation = NA_character_
   )
+
+  if (identical(note, "Ok")) {
+    res$current_name <- name
+    res$status <- "ACCEPTED"
+  } else if (note %in% c("Synonym", "Nomenclature change")) {
+    res$current_name <- best
+    res$status <- "SYNONYM"
+    res$synonym_of <- best
+    res$observation <- paste0("WSC: ", note)
+  } else if (identical(note, "Misspelling")) {
+    dist <- utils::adist(name, best)[1, 1]
+    if (dist > .max_misspelling_dist) {
+      return(list(
+        fonte = NA_character_,
+        current_name = NA_character_,
+        observation = sprintf(
+          "WSC: nome n\u00e3o encontrado (sugest\u00e3o mais pr\u00f3xima: %s)", best
+        )
+      ))
+    }
+    res$current_name <- best
+    res$status <- "MISSPELLING"
+    res$observation <- sprintf("WSC: grafia corrigida para %s (dist\u00e2ncia %d)", best, dist)
+  } else {
+    return(NULL)
+  }
+
+  if (!is.na(alt) && nzchar(alt)) {
+    res$observation <- .paste_obs(res$observation, paste0("WSC: alternativas: ", alt))
+  }
+
+  rec <- .wsc_record(res$current_name)
+  if (!is.null(rec)) {
+    res$family <- rec$family
+    res$lsid <- rec$lsid
+  }
+
+  res
 }
 
 .query_gbif <- function(name) {
@@ -144,30 +99,50 @@ spp_norm <- function(x) {
     rgbif::name_backbone(name = name, rank = "species", strict = FALSE, verbose = FALSE),
     silent = TRUE
   )
+  if (inherits(out, "try-error") || !is.data.frame(out) || nrow(out) == 0) return(NULL)
 
-  if (inherits(out, "try-error") || length(out) == 0) return(NULL)
+  col <- function(nm) {
+    if (nm %in% names(out)) as.character(out[[nm]][1]) else NA_character_
+  }
 
-  current_name <- out$species %||% out$canonicalName %||% out$scientificName %||% name
-  status <- out$status %||% out$matchType %||% NA_character_
-  lsid <- out$scientificNameID %||% out$taxonID %||% NA_character_
+  match_type <- col("matchType")
+  if (is.na(match_type) || match_type %in% c("NONE", "HIGHERRANK")) {
+    return(list(
+      fonte = NA_character_,
+      current_name = NA_character_,
+      family = col("family"),
+      observation = sprintf(
+        "GBIF: sem correspond\u00eancia em n\u00edvel de esp\u00e9cie (matchType = %s)", match_type
+      )
+    ))
+  }
+
+  # Para sinonimos, o campo `species` do GBIF traz a especie aceita.
+  current_name <- col("species") %||% col("canonicalName") %||% name
+  status <- col("status")
+  is_synonym <- !is.na(status) && grepl("SYNONYM", status)
 
   list(
     fonte = "GBIF/rgbif",
-    current_name = as.character(current_name),
-    status = as.character(status),
-    synonym_of = if (!is.null(out$acceptedUsageKey) && !is.na(out$acceptedUsageKey)) as.character(current_name) else NA_character_,
-    family = as.character(out$family %||% NA_character_),
-    lsid = as.character(lsid),
-    gbif_usagekey = as.character(out$usageKey %||% NA_character_),
-    confidence = as.character(out$confidence %||% NA_character_),
-    observation = as.character(out$note %||% NA_character_)
+    current_name = current_name,
+    status = status,
+    synonym_of = if (is_synonym) current_name else NA_character_,
+    family = col("family"),
+    lsid = NA_character_,
+    gbif_usagekey = col("usageKey"),
+    confidence = col("confidence"),
+    observation = if (identical(match_type, "FUZZY")) {
+      "GBIF: correspond\u00eancia aproximada (FUZZY)"
+    } else {
+      NA_character_
+    }
   )
 }
 
 .resolve_nome_aranha <- function(name, lsid_input = NA_character_) {
-  padrao <- list(
+  res <- list(
     fonte = NA_character_,
-    current_name = name,
+    current_name = NA_character_,
     status = NA_character_,
     synonym_of = NA_character_,
     family = NA_character_,
@@ -181,37 +156,46 @@ spp_norm <- function(x) {
   wsc <- .query_wsc_arakno(name)
   gbif <- .query_gbif(name)
 
-  if (!is.null(wsc)) {
-    for (nm in names(wsc)) padrao[[nm]] <- wsc[[nm]]
+  wsc_ok <- !is.null(wsc) && !is.na(wsc$current_name)
+  gbif_ok <- !is.null(gbif) && !is.na(gbif$current_name)
+
+  # WSC tem prioridade para o nome aceito de aranhas; GBIF e usado quando o
+  # WSC nao resolve o nome.
+  principal <- if (wsc_ok) wsc else if (gbif_ok) gbif else NULL
+  if (!is.null(principal)) {
+    for (nm in c("fonte", "current_name", "status", "synonym_of")) {
+      res[[nm]] <- principal[[nm]] %||% NA_character_
+    }
+  } else {
+    res$status <- "NOT_FOUND"
   }
 
-  if (!is.null(gbif)) {
-    # WSC tem prioridade para name atual de aranhas; GBIF complementa campos faltantes.
-    for (nm in names(gbif)) {
-      if (is.null(padrao[[nm]]) || is.na(padrao[[nm]]) || !nzchar(padrao[[nm]])) {
-        padrao[[nm]] <- gbif[[nm]]
-      }
-    }
-
-    if (is.na(padrao$fonte) || !nzchar(padrao$fonte)) {
-      padrao$fonte <- gbif$fonte
+  # Campos complementares: WSC primeiro, depois GBIF.
+  for (src in list(wsc, gbif)) {
+    for (nm in c("family", "lsid", "gbif_usagekey", "confidence")) {
+      if (is.na(res[[nm]]) && !is.null(src[[nm]])) res[[nm]] <- src[[nm]]
     }
   }
+
+  divergencia <- if (wsc_ok && gbif_ok && !identical(wsc$current_name, gbif$current_name)) {
+    sprintf("GBIF indica: %s (%s)", gbif$current_name, gbif$status)
+  } else {
+    NA_character_
+  }
+  res$observation <- .paste_obs(wsc$observation, gbif$observation, divergencia)
 
   if (!is.na(lsid_input) && nzchar(lsid_input)) {
-    if (is.na(padrao$lsid) || !nzchar(padrao$lsid)) {
-      padrao$lsid <- lsid_input
-    } else if (!identical(padrao$lsid, lsid_input)) {
-      obs <- paste0("LSID input difere do retorno (input=", lsid_input, ").")
-      if (is.na(padrao$observation) || !nzchar(padrao$observation)) {
-        padrao$observation <- obs
-      } else {
-        padrao$observation <- paste(padrao$observation, obs, sep = " ")
-      }
+    if (is.na(res$lsid) || !nzchar(res$lsid)) {
+      res$lsid <- lsid_input
+    } else if (!identical(res$lsid, lsid_input)) {
+      res$observation <- .paste_obs(
+        res$observation,
+        paste0("LSID input difere do retorno (input=", lsid_input, ").")
+      )
     }
   }
 
-  padrao
+  res
 }
 
 
@@ -219,9 +203,10 @@ spp_norm <- function(x) {
 #' Corrige nomenclatura taxonômica de aranhas usando WSC (arakno) e GBIF (rgbif)
 #'
 #' Esta função padroniza e atualiza nomes de espécies de aranhas a partir de um
-#' `data.frame`, consultando o World Spider Catalogue (via pacote `arakno`) e o
-#' GBIF (via pacote `rgbif`). O WSC tem prioridade para nomes aceitos, enquanto
-#' o GBIF complementa metadados como LSID, família e nível de confiança.
+#' `data.frame`, consultando o World Spider Catalog (via pacote `arakno`) e o
+#' GBIF (via pacote `rgbif`). O WSC tem prioridade para nomes aceitos, família
+#' e LSID; o GBIF é usado quando o WSC não resolve o nome e complementa a
+#' chave e a confiança do match no GBIF.
 #'
 #' A função utiliza um sistema de cache persistente (`.rds`) para evitar consultas
 #' repetidas e um mecanismo de checkpoint para retomar execuções interrompidas.
@@ -248,12 +233,16 @@ spp_norm <- function(x) {
 #' @return Um `data.frame` com as colunas originais acrescidas de:
 #' \describe{
 #'   \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
-#'   \item{Especie_match}{Possível nome aceito mais recente da espécie (conferir coluna "sinonimo_de".}
-#'   \item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
-#'   \item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
-#'   \item{Sinonimo_de}{Nome aceito caso o original (Especie_match) seja sinônimo ou nomen dubium.}
-#'   \item{LSID}{Identificador taxonômico (quando disponível).}
-#'   \item{GBIF_usageKey}{Identificador único do GBIF.}
+#'   \item{Especie_match}{Nome aceito atual da espécie. `NA` quando o nome não
+#'     foi encontrado.}
+#'   \item{Fonte_taxonomia}{Fonte do nome aceito (`"WSC/arakno"` ou `"GBIF/rgbif"`).}
+#'   \item{Status_taxonomico}{Status do nome informado: `ACCEPTED`, `SYNONYM`,
+#'     `MISSPELLING` (grafia corrigida pelo WSC), `NOT_FOUND` ou outro status
+#'     retornado pelo GBIF.}
+#'   \item{Sinonimo_de}{Nome aceito quando o nome informado é sinônimo ou
+#'     combinação antiga.}
+#'   \item{LSID}{LSID do WSC para o nome aceito (quando disponível).}
+#'   \item{GBIF_usageKey}{Identificador único do GBIF para o nome informado.}
 #'   \item{Confianca_match}{Nível de confiança do match no GBIF.}
 #'   \item{Observacao_taxonomia}{Observações adicionais do processo de resolução.}
 #'   \item{Familia}{Família taxonômica (opcional, se `include_family = TRUE`).}
@@ -272,17 +261,25 @@ spp_norm <- function(x) {
 #' \enumerate{
 #'   \item Normaliza os nomes das espécies (função `spp_norm()`).
 #'   \item Remove duplicatas (nome + LSID).
-#'   \item Consulta primeiro o WSC (`arakno::checknames()`).
-#'   \item Complementa informações com o GBIF (`rgbif::name_backbone()`).
+#'   \item Consulta o WSC (`arakno::checkNames()`).
+#'   \item Consulta o GBIF (`rgbif::name_backbone()`).
 #'   \item Armazena resultados em cache e checkpoint.
 #'   \item Reconstrói o `data.frame` final com os resultados.
 #' }
 #'
 #' \strong{Prioridade de dados:}
 #' \itemize{
-#'   \item Nome aceito: WSC (quando disponível).
-#'   \item Metadados adicionais: GBIF.
+#'   \item Nome aceito, família e LSID: WSC (quando disponível).
+#'   \item Nome aceito quando o WSC não resolve o nome: GBIF.
+#'   \item Chave e confiança do GBIF: GBIF.
 #' }
+#'
+#' Correções de grafia sugeridas pelo WSC só são aceitas quando diferem do
+#' nome informado em até 2 caracteres; caso contrário, a sugestão é registrada
+#' em `Observacao_taxonomia`.
+#'
+#' Na primeira consulta da sessão, o `arakno` baixa a tabela completa do WSC
+#' e a guarda no ambiente global como `wscData`.
 #'
 #' @examples
 #' \dontrun{
@@ -301,8 +298,8 @@ spp_norm <- function(x) {
 #' }
 #'
 #' @seealso
-#' \code{\link{spider_family}}, \code{\link{rgbif::name_backbone}},
-#' \code{\link{arakno::checknames}}
+#' \code{\link{spider_family}}, \code{\link{taxon_summary}},
+#' \code{\link[rgbif]{name_backbone}}, \code{\link[arakno]{checkNames}}
 #'
 #' @importFrom utils txtProgressBar setTxtProgressBar
 #' @export
@@ -322,15 +319,19 @@ correct_taxon <- function(
     col_lsid = NULL
 ) {
   if (!is.data.frame(df)) stop("`df` deve ser um data.frame.")
-  if (!col_species %in% names(df)) stop(sprintf("Coluna `%s` não encontrada em `df`.", col_species))
+  if (!col_species %in% names(df)) {
+    stop(sprintf("Coluna `%s` n\u00e3o encontrada em `df`.", col_species))
+  }
 
   input <- as.character(df[[col_species]])
   input[is.na(input)] <- ""
-  input_norm <- vapply(input, spp_norm, character(1))
+  input_norm <- spp_norm(input)
   lsid_input <- rep(NA_character_, length(input_norm))
   if (!is.null(col_lsid)) {
-    if (!col_lsid %in% names(df)) stop(sprintf("Coluna `%s` não encontrada em `df`.", col_lsid))
-    lsid_input <- vapply(df[[col_lsid]], .lsid_normalize, character(1))
+    if (!col_lsid %in% names(df)) {
+      stop(sprintf("Coluna `%s` n\u00e3o encontrada em `df`.", col_lsid))
+    }
+    lsid_input <- vapply(df[[col_lsid]], .lsid_normalize, character(1), USE.NAMES = FALSE)
   }
 
   pairs <- data.frame(
@@ -340,7 +341,7 @@ correct_taxon <- function(
   )
   pairs <- unique(pairs)
   keys <- mapply(.cache_key, pairs$name, pairs$lsid, USE.NAMES = FALSE)
-  pairs$key <- keys
+  pairs$key <- as.character(keys)
 
   cache <- list()
   if (file.exists(cache_file)) {
@@ -364,7 +365,9 @@ correct_taxon <- function(
   t0 <- Sys.time()
 
   if (verbose) {
-    message(sprintf("Iniciando resolução taxonômica: %d nomes únicos pending.", n_total))
+    message(sprintf(
+      "Iniciando resolu\u00e7\u00e3o taxon\u00f4mica: %d nomes \u00fanicos pendentes.", n_total
+    ))
   }
 
   if (n_total > 0 && verbose) {
@@ -437,4 +440,3 @@ correct_taxon <- function(
 
   output
 }
-

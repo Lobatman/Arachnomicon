@@ -48,12 +48,16 @@ conhecidos para auxiliar na resolução taxonômica. Default é \code{NULL}.}
 Um \code{data.frame} com as colunas originais acrescidas de:
 \describe{
 \item{Especie_normalizada}{Nome padronizado (capitalização e espaços corrigidos).}
-\item{Especie_match}{Possível nome aceito mais recente da espécie (conferir coluna "sinonimo_de".}
-\item{Fonte_taxonomia}{Fonte principal da informação (WSC/arakno ou GBIF/rgbif).}
-\item{Status_taxonomico}{Status do nome (ex: aceito, sinônimo).}
-\item{Sinonimo_de}{Nome aceito caso o original (Especie_match) seja sinônimo ou nomen dubium.}
-\item{LSID}{Identificador taxonômico (quando disponível).}
-\item{GBIF_usageKey}{Identificador único do GBIF.}
+\item{Especie_match}{Nome aceito atual da espécie. \code{NA} quando o nome não
+foi encontrado.}
+\item{Fonte_taxonomia}{Fonte do nome aceito (\code{"WSC/arakno"} ou \code{"GBIF/rgbif"}).}
+\item{Status_taxonomico}{Status do nome informado: \code{ACCEPTED}, \code{SYNONYM},
+\code{MISSPELLING} (grafia corrigida pelo WSC), \code{NOT_FOUND} ou outro status
+retornado pelo GBIF.}
+\item{Sinonimo_de}{Nome aceito quando o nome informado é sinônimo ou
+combinação antiga.}
+\item{LSID}{LSID do WSC para o nome aceito (quando disponível).}
+\item{GBIF_usageKey}{Identificador único do GBIF para o nome informado.}
 \item{Confianca_match}{Nível de confiança do match no GBIF.}
 \item{Observacao_taxonomia}{Observações adicionais do processo de resolução.}
 \item{Familia}{Família taxonômica (opcional, se \code{include_family = TRUE}).}
@@ -69,9 +73,10 @@ Além disso, o objeto retornado contém atributos:
 }
 \description{
 Esta função padroniza e atualiza nomes de espécies de aranhas a partir de um
-\code{data.frame}, consultando o World Spider Catalogue (via pacote \code{arakno}) e o
-GBIF (via pacote \code{rgbif}). O WSC tem prioridade para nomes aceitos, enquanto
-o GBIF complementa metadados como LSID, família e nível de confiança.
+\code{data.frame}, consultando o World Spider Catalog (via pacote \code{arakno}) e o
+GBIF (via pacote \code{rgbif}). O WSC tem prioridade para nomes aceitos, família
+e LSID; o GBIF é usado quando o WSC não resolve o nome e complementa a
+chave e a confiança do match no GBIF.
 }
 \details{
 A função utiliza um sistema de cache persistente (\code{.rds}) para evitar consultas
@@ -81,17 +86,25 @@ repetidas e um mecanismo de checkpoint para retomar execuções interrompidas.
 \enumerate{
 \item Normaliza os nomes das espécies (função \code{spp_norm()}).
 \item Remove duplicatas (nome + LSID).
-\item Consulta primeiro o WSC (\code{arakno::checknames()}).
-\item Complementa informações com o GBIF (\code{rgbif::name_backbone()}).
+\item Consulta o WSC (\code{arakno::checkNames()}).
+\item Consulta o GBIF (\code{rgbif::name_backbone()}).
 \item Armazena resultados em cache e checkpoint.
 \item Reconstrói o \code{data.frame} final com os resultados.
 }
 
 \strong{Prioridade de dados:}
 \itemize{
-\item Nome aceito: WSC (quando disponível).
-\item Metadados adicionais: GBIF.
+\item Nome aceito, família e LSID: WSC (quando disponível).
+\item Nome aceito quando o WSC não resolve o nome: GBIF.
+\item Chave e confiança do GBIF: GBIF.
 }
+
+Correções de grafia sugeridas pelo WSC só são aceitas quando diferem do
+nome informado em até 2 caracteres; caso contrário, a sugestão é registrada
+em \code{Observacao_taxonomia}.
+
+Na primeira consulta da sessão, o \code{arakno} baixa a tabela completa do WSC
+e a guarda no ambiente global como \code{wscData}.
 }
 \examples{
 \dontrun{
@@ -111,8 +124,8 @@ resultado3 <- correct_taxon(df, col_lsid = "LSID_input")
 
 }
 \seealso{
-\code{\link{spider_family}}, \code{\link{rgbif::name_backbone}},
-\code{\link{arakno::checknames}}
+\code{\link{spider_family}}, \code{\link{taxon_summary}},
+\code{\link[rgbif]{name_backbone}}, \code{\link[arakno]{checkNames}}
 }
 \author{
 Victor Lobato dos Santos

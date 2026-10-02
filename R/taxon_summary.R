@@ -1,5 +1,3 @@
-#FUNCAO taxon_summary
-
 #' Resume qualidade da correção taxonômica.
 #'
 #' Calcula métricas simples a partir da saída de `correct_taxon()`.
@@ -15,7 +13,8 @@
 #' \describe{
 #'   \item{n_especies_unicas}{Número de espécies únicas após correção.}
 #'   \item{n_sinonimos_corrigidos}{Número de registros de sinônimos corrigidos.}
-#'   \item{taxa_erro}{Proporção de registros sem resolução taxonômica válida.}
+#'   \item{taxa_erro}{Proporção de registros sem resolução taxonômica válida
+#'     (nome atual ou fonte vazios, ou status `NOT_FOUND`/`NONE`).}
 #' }
 #'
 #' @examples
@@ -67,7 +66,8 @@ taxon_summary <- function(
   sinonimo_por_coluna <- nzchar(syn)
   n_sinonimos_corrigidos <- sum(sinonimo_por_status | sinonimo_por_coluna)
 
-  sem_resolucao <- !nzchar(cur) | !nzchar(source)
+  sem_resolucao <- !nzchar(cur) | !nzchar(source) |
+    toupper(status) %in% c("NOT_FOUND", "NONE")
   taxa_erro <- if (nrow(df) == 0) NA_real_ else sum(sem_resolucao) / nrow(df)
 
   data.frame(

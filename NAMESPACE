@@ -4,5 +4,7 @@ export(correct_taxon)
 export(spider_family)
 export(spp_norm)
 export(taxon_summary)
-importFrom(utils,setTxtProgressBar)
-importFrom(utils,txtProgressBar)
+importFrom(utils,
+  setTxtProgressBar,
+  txtProgressBar
+)

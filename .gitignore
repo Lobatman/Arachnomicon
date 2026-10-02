@@ -1,1 +1,13 @@
-.Rproj.user
+# RStudio / sessao R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Artefatos de build e check
+*.Rcheck/
+Arachnomicon_*.tar.gz
+
+# Cache e checkpoint gerados por correct_taxon()
+cache_taxonomia_aranhas.rds
+checkpoint_taxonomia_aranhas.rds

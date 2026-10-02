@@ -2,16 +2,31 @@
 % Please edit documentation in R/spider_family.R
 \name{spider_family}
 \alias{spider_family}
-\title{Obtém a família taxonômica de uma espécie de aranha.}
+\title{Obtém a família taxonômica de uma espécie de aranha}
 \usage{
 spider_family(especie, lsid = NA_character_)
 }
 \arguments{
-\item{especie}{name da espécie (ex: "Actinopus anselmoi").}
+\item{especie}{Nome da espécie (ex.: \code{"Actinopus anselmoi"}). Apenas o
+primeiro elemento é usado.}
+
+\item{lsid}{LSID opcional da espécie. Apenas o primeiro elemento é usado.}
 }
 \value{
-name da família ou \code{NA_character_} quando não encontrado.
+Nome da família ou \code{NA_character_} quando não encontrado.
 }
 \description{
-Obtém a família taxonômica de uma espécie de aranha.
+Consulta o World Spider Catalog (via \code{arakno}) e, quando necessário, o GBIF
+(via \code{rgbif}) para obter a família de uma espécie. Para sinônimos, retorna a
+família do nome aceito.
+}
+\examples{
+\dontrun{
+spider_family("Phoneutria nigriventer")
+# "Ctenidae"
+}
+
+}
+\seealso{
+\code{\link{correct_taxon}}
 }
